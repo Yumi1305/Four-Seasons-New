@@ -1,0 +1,16 @@
+# Edge Function routing. Deploy from repo root so this file is applied, e.g.:
+#   supabase functions deploy orders
+#   supabase functions deploy events
+#
+# Supabase’s gateway JWT check (verify_jwt) does NOT work with the newer asymmetric
+# JWT Signing Keys — you still get "Invalid JWT" even with a valid session. Official fix:
+# skip gateway verification here and validate inside the function (this repo forwards
+# Authorization to createClient). See:
+# https://supabase.com/docs/guides/functions/auth
+# https://supabase.com/docs/guides/functions/function-configuration
+
+[functions.orders]
+verify_jwt = false
+
+[functions.events]
+verify_jwt = false
