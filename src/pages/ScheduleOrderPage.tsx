@@ -15,6 +15,7 @@ interface OrderData {
   eventId?: string;
   eventName?: string;
   eventDateLabel?: string;
+  lunchSlot: "A" | "B";
   main: EventDish;
   side1: EventDish | null;
   side2: EventDish | null;
@@ -83,6 +84,7 @@ export default function ScheduleOrderPage() {
       eventId: event?.eventId ?? event?.id,
       eventName: event?.name,
       eventDateLabel: event?.dateLabel,
+      lunchSlot: event?.slot ?? "A",
       main: toEventDish(first, 0),
       side1: second ? toEventDish(second, 1) : null,
       side2: third ? toEventDish(third, 2) : null,

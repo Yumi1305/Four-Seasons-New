@@ -126,6 +126,7 @@ export interface CheckoutOrder {
   eventId?: string;
   eventName?: string;
   eventDateLabel?: string;
+  lunchSlot?: "A" | "B";
   main?: CheckoutOrderItem | null;
   side1?: CheckoutOrderItem | null;
   side2?: CheckoutOrderItem | null;
@@ -206,9 +207,8 @@ export function CheckoutModal({
           body: JSON.stringify({
             nonce: result.token,
             amount: Math.round(total * 100),
-            orderId: order.eventId,
-            eventName: order.eventName,
-            eventDateLabel: order.eventDateLabel,
+            eventId: order.eventId,
+            lunchSlot: order.lunchSlot,
             customerName: order.customerName,
             grade: order.grade,
             items: {
