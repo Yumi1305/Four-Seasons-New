@@ -2,9 +2,9 @@ export const CHOWBUS_URL =
   "https://pos.chowbus.com/online-ordering/store/Four-Seasons-House/22737";
 
 export const HERO_IMAGES = [
-  "../public/skewers.jpg",
-  "../public/food2.jpg",
-  "../public/noodles.jpg",
+  "/skewers.jpg",
+  "/food2.jpg",
+  "/noodles.jpg",
 ];
 
 const PLACEHOLDER_IMG =

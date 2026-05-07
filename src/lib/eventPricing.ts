@@ -8,7 +8,7 @@
  *
  * Mirror these constants in `supabase/functions/events/index.ts` if changed.
  */
-export const EVENT_BASE_PRICE = 10;
+export const EVENT_BASE_PRICE = 8;
 export const EVENT_EXTRA_PRICE = 2;
 export const EVENT_MAX_DISHES = 3;
 
