@@ -151,7 +151,7 @@ Deno.serve(async(req) =>{
     updated_at: new Date().toISOString()
   }).eq("id", orderId)
 
-  return jsonResponse({message: `order approved! ${orderId}`}, 200)
+  return jsonResponse({message: orderId}, 200)
 
 
 

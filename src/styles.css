@@ -2254,6 +2254,7 @@ body {
   margin: 0;
 }
 
+
 .event-menu-checkbox input {
   margin-top: 2px;
   flex-shrink: 0;
@@ -2276,4 +2277,33 @@ body {
   }
 }
 
+/* Confirmation page */
+.confirmation-page { padding: 2rem 0; }
+.confirmation-box { max-width: 560px; margin: 0 auto; }
 
+.confirmation-header { text-align: center; margin-bottom: 2rem; }
+.confirmation-header h1 { color: var(--accent); margin-bottom: 0.25rem; }
+.confirmation-sub { color: #555; }
+
+.confirmation-section { margin-bottom: 2rem; }
+.confirmation-section h2 { font-size: 1rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: #888; margin-bottom: 0.75rem; }
+
+.receipt-table { width: 100%; border-collapse: collapse; }
+.receipt-table td { padding: 0.5rem 0; border-bottom: 1px solid var(--border-subtle); font-size: 0.95rem; }
+.receipt-table td:last-child { text-align: right; }
+.receipt-total td { padding-top: 0.75rem; font-size: 1.05rem; border-bottom: none; }
+
+.receipt-tag { font-size: 0.7rem; background: var(--accent); color: white;
+  padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.4rem; vertical-align: middle; }
+
+.confirmation-actions { display: flex; gap: 1rem; margin-top: 2rem; }
+.confirmation-actions .btn-secondary { background: #f0f0f0; color: #333; border: none;
+  padding: 0.75rem 1.5rem; border-radius: var(--radius-md); cursor: pointer; font-size: 1rem; }
+
+/* Print styles — hides everything except the receipt */
+@media print {
+  header, footer, .no-print { display: none !important; }
+  .confirmation-box { max-width: 100%; box-shadow: none; }
+  body { background: white; }
+}
