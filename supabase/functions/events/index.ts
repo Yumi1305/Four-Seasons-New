@@ -16,7 +16,7 @@ function jsonResponse(body: unknown, status: number) {
 
 // Mirror of `src/lib/eventPricing.ts`. Used for cents math when persisting
 // menu_items. Pricing on order is computed by the order/payment flow.
-const EVENT_BASE_PRICE_CENTS = 1000;
+const EVENT_BASE_PRICE_CENTS = 800;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -368,6 +368,19 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "DELETE" && id) {
+      const { count, error: countErr } = await supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", id);
+      if (countErr) throw countErr;
+
+      if ((count ?? 0) > 0) {
+        return jsonResponse(
+          { message: `Cannot delete: this event has ${count} order(s). Cancel or refund them first.` },
+          409,
+        );
+      }
+
       const { error } = await supabase.from("events").delete().eq("id", id);
       if (error) throw error;
       return new Response(null, { status: 204, headers: corsHeaders });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const PLACEHOLDER_IMG =
@@ -203,19 +203,13 @@ function scrollToSection(id: string) {
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function scrollFromNav(
-  e: React.MouseEvent<HTMLElement>,
-  targetId: string,
-) {
-  const details = (e.currentTarget as HTMLElement).closest("details");
-  if (details) details.open = false;
-  scrollToSection(targetId);
-}
 
 export default function MenuPage() {
   const [sections, setSections] = useState<MenuSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -250,6 +244,17 @@ export default function MenuPage() {
 
   const menuNav = useMemo(() => buildMenuNav(sections), [sections]);
 
+  // Close open dropdown when clicking outside the nav bar
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   return (
     <main className="page-content">
       <div className="container" id="container-top">
@@ -265,7 +270,7 @@ export default function MenuPage() {
           Back to top
         </button>
 
-        <nav className="menu-nav-bar" aria-label="Menu sections">
+        <nav className="menu-nav-bar" aria-label="Menu sections" ref={navRef}>
           {menuNav.map((item) =>
             item.kind === "link" ? (
               <button
@@ -277,35 +282,40 @@ export default function MenuPage() {
                 {item.label}
               </button>
             ) : (
-              <details key={item.label} className="menu-nav-dropdown">
-                <summary className="menu-nav-dropdown-summary">
+              <div key={item.label} className="menu-nav-dropdown">
+                <button
+                  type="button"
+                  className={`menu-nav-dropdown-summary${openDropdown === item.label ? " open" : ""}`}
+                  aria-expanded={openDropdown === item.label}
+                  onClick={() =>
+                    setOpenDropdown(openDropdown === item.label ? null : item.label)
+                  }
+                >
                   {item.label}
-                  <span className="menu-nav-chevron" aria-hidden>
-                    ▾
-                  </span>
-                </summary>
-                <div className="menu-nav-dropdown-panel">
-                  <button
-                    type="button"
-                    className="menu-nav-dropdown-item menu-nav-dropdown-overview"
-                    onClick={(e) =>
-                      scrollFromNav(e, item.overviewTargetId)
-                    }
-                  >
-                    View all
-                  </button>
-                  {item.options.map((opt) => (
+                  <span className="menu-nav-chevron" aria-hidden>▾</span>
+                </button>
+                {openDropdown === item.label && (
+                  <div className="menu-nav-dropdown-panel">
                     <button
-                      key={opt.targetId}
                       type="button"
-                      className="menu-nav-dropdown-item"
-                      onClick={(e) => scrollFromNav(e, opt.targetId)}
+                      className="menu-nav-dropdown-item menu-nav-dropdown-overview"
+                      onClick={() => { scrollToSection(item.overviewTargetId); setOpenDropdown(null); }}
                     >
-                      {opt.label}
+                      View all
                     </button>
-                  ))}
-                </div>
-              </details>
+                    {item.options.map((opt) => (
+                      <button
+                        key={opt.targetId}
+                        type="button"
+                        className="menu-nav-dropdown-item"
+                        onClick={() => { scrollToSection(opt.targetId); setOpenDropdown(null); }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ),
           )}
         </nav>

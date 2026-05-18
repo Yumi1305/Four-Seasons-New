@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getSquareConfig } from "../lib/squareConfig";
+import { useNavigate } from "react-router-dom";
 
 declare global {
   interface Window {
@@ -218,15 +219,33 @@ export function CheckoutModal({
             },
           }),
         });
-        if (!res.ok) throw new Error("Payment failed");
-      } else {
-        alert(
-          "Payment token received. To complete payments, set VITE_SQUARE_PAYMENT_API_URL and implement a backend endpoint that creates a Square payment."
-        );
-      }
+        if (!res.ok){
+          const errData = await res.json().catch(()=>({}));
+          throw new Error(errData.message || "payment failed");
+        };
 
-      setStatus("success");
-      setTimeout(onClose, 1500);
+        const data = await res.json();
+
+        navigate('/payment-confirmation', {
+          state: {
+            orderId: data.orderId,
+            customerName: order.customerName,
+            grade: order.grade,
+            eventName: order.eventName,
+            eventDateLabel: order.eventDateLabel,
+            lunchSlot: order.lunchSlot,
+            main: order.main,
+            side1: order.side1,
+            side2: order.side2,
+            totalPaid: total,
+          },
+        });
+        return; // navigation handles the rest
+
+      } else {
+        alert("Set VITE_SQUARE_PAYMENT_API_URL to enable payments.");
+        setStatus("idle");
+      }
     } catch (err) {
       setStatus("idle");
       alert((err instanceof Error ? err.message : "Payment failed. Please try again.") || "Payment failed. Please try again.");

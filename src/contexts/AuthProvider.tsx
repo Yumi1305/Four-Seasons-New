@@ -90,6 +90,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [authReady, session?.user?.id, session]);
 
+  // Sign out after 30 minutes of inactivity — industry standard for admin portals.
+  // Timer resets on any mouse, keyboard, or touch event.
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const IDLE_MS = 30 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => supabase.auth.signOut(), IDLE_MS);
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"] as const;
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [isAdmin]);
+
   const signIn = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
