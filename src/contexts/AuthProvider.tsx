@@ -67,28 +67,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void (async () => {
-      const gate = await resolveAdminGate(user);
-      if (cancelled) return;
+      try {
+        const gate = await resolveAdminGate(user);
+        if (cancelled) return;
 
-      if (gate === "admin") {
-        setIsAdmin(true);
+        if (gate === "admin") {
+          setIsAdmin(true);
+          setLoading(false);
+          return;
+        }
+
+        if (gate === "not_admin") {
+          setLoading(false);
+          await supabase.auth.signOut();
+          return;
+        }
+
         setLoading(false);
-        return;
+      } catch {
+        if (!cancelled) setLoading(false);
       }
-
-      if (gate === "not_admin") {
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
-
-      setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [authReady, session?.user?.id, session]);
+  }, [authReady, session?.user?.id]);
 
   // Sign out after 30 minutes of inactivity — industry standard for admin portals.
   // Timer resets on any mouse, keyboard, or touch event.
