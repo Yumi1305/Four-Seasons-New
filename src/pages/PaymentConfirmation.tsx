@@ -4,20 +4,20 @@ function PaymentConfirmation(){
   const {state} = useLocation();
   const navigate = useNavigate(); 
   
-  if (!state?.orderId){
-    return(
-    <div style={
-        {
-          height: '100vh'
-        }
-      }>
-      <div>
-        order failed
-      </div>
-      <button onClick={()=>{navigate('/')}}>Go home</button>
-    </div>
-    )
-  }
+  // if (!state?.orderId){
+  //   return(
+  //   <div style={
+  //       {
+  //         height: '100vh'
+  //       }
+  //     }>
+  //     <div>
+  //       order failed
+  //     </div>
+  //     <button onClick={()=>{navigate('/')}}>Go home</button>
+  //   </div>
+  //   )
+  // }
 
   const {customerName, orderId, grade, eventName, eventDateLabel, lunchSlot, main, side1, side2, totalPaid} = state; 
   return(
@@ -25,6 +25,7 @@ function PaymentConfirmation(){
       <div className="container confirmation-box" id="receipt">
         <div className="confirmation-header">
           <h1>Order Confirmed!</h1>
+          <div>{state.orderId}</div>
           <p className="confirmation-sub">Thank you, {customerName}. Your lunch is reserved.</p>
         </div>
 

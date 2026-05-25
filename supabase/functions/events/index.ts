@@ -368,6 +368,16 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "DELETE" && id) {
+      const {count, error: countErr} = await supabase
+      .from("orders")
+      .select("id", {count: "exact", head: "True"})
+      .eq("event_id", id); 
+
+      if (countErr) throw countErr;  
+      if (count && count > 0){
+        return jsonResponse({message: `Cannot delete: this event has ${count} order(s) referencing it.` }, 409)
+      }
+
       const { error } = await supabase.from("events").delete().eq("id", id);
       if (error) throw error;
       return new Response(null, { status: 204, headers: corsHeaders });

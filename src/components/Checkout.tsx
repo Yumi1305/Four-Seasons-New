@@ -228,7 +228,7 @@ export function CheckoutModal({
 
         navigate('/payment-confirmation', {
           state: {
-            orderId: data.orderId, 
+            orderId: data.message, 
             customerName: order.customerName,
             grade: order.grade,
             eventName: order.eventName,
@@ -237,7 +237,7 @@ export function CheckoutModal({
             main: order.main,
             side1: order.side1,
             side2: order.side2,
-            totalPaid: total,
+            totalPaid: total
           }
         })
 
@@ -248,8 +248,6 @@ export function CheckoutModal({
         setStatus("idle"); 
       }
 
-      setStatus("success");
-      setTimeout(onClose, 1500);
     } catch (err) {
       setStatus("idle");
       alert((err instanceof Error ? err.message : "Payment failed. Please try again.") || "Payment failed. Please try again.");
