@@ -25,13 +25,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Reset gating state in the SAME update that changes session, so AdminRoute
-  // never observes a new session paired with stale isAdmin from the previous user.
-  // Wrapped together with React's automatic batching (React 18+) — no flushSync needed.
   const applySession = useCallback((next: Session | null) => {
     setSession(next);
     setIsAdmin(false);
-    setLoading(true);
+    setLoading(next !== null); // no session = no admin check, resolve immediately
   }, []);
 
   useEffect(() => {
@@ -45,7 +42,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // These events only refresh tokens — the user hasn't changed.
+      // Only update the stored session so API calls use fresh tokens.
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        setSession(nextSession);
+        return;
+      }
       applySession(nextSession);
     });
 
