@@ -16,7 +16,7 @@ function jsonResponse(body: unknown, status: number) {
 
 // Mirror of `src/lib/eventPricing.ts`. Used for cents math when persisting
 // menu_items. Pricing on order is computed by the order/payment flow.
-const EVENT_BASE_PRICE_CENTS = 1000;
+const EVENT_BASE_PRICE_CENTS = 800;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
