@@ -10,8 +10,9 @@ export default function Header() {
     <header className="site-header">
       <div className="header-inner">
         <NavLink to="/" className="logo" onClick={() => setMenuOpen(false)}>
-          <span className="logo-mark">三餐四季</span>
-          <span className="logo-text">Four Seasons</span>
+          <span className="logo-mark" style={{cursor: 'pointer'}}>三餐四季</span>
+          <span style={{cursor: 'pointer'}}
+          className="logo-text">Four Seasons</span>
         </NavLink>
 
         <button

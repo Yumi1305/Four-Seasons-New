@@ -13,6 +13,7 @@ import OrderPage from "./pages/OrderPage";
 import AdminPage from "./pages/AdminPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminRoute from "./components/AdminRoute";
+import PaymentConfirmation from "./pages/PaymentConfirmation"; 
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/schedule/checkout" element={<CheckoutPage />} />
         <Route path="/order" element={<OrderPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/payment-confirmation" element={<PaymentConfirmation/>} />
         <Route
           path="/admin"
           element={

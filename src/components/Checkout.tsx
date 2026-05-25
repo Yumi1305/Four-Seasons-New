@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getSquareConfig } from "../lib/squareConfig";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 
 declare global {
   interface Window {
@@ -146,13 +146,13 @@ export function CheckoutModal({
   onClose: () => void;
   isMobile: boolean;
 }) {
+  const navigate = useNavigate(); 
   const { main, side1, side2 } = order;
   const subtotal =
     (main?.price || 0) + (side1?.price || 0) + (side2?.price || 0);
-  const [tip, setTip] = useState(0);
   const [status, setStatus] = useState("idle");
   const cardInstanceRef = useRef<SquareCardInstance | null>(null);
-  const total = subtotal + tip;
+  const total = subtotal; 
   const config = getSquareConfig();
 
   useEffect(() => {
@@ -221,14 +221,14 @@ export function CheckoutModal({
         });
         if (!res.ok){
           const errData = await res.json().catch(()=>({}));
-          throw new Error(errData.message || "payment failed");
+          throw new Error(errData.message || "payment failed"); 
         };
 
-        const data = await res.json();
+        const data = await res.json(); 
 
         navigate('/payment-confirmation', {
           state: {
-            orderId: data.orderId,
+            orderId: data.message, 
             customerName: order.customerName,
             grade: order.grade,
             eventName: order.eventName,
@@ -237,15 +237,17 @@ export function CheckoutModal({
             main: order.main,
             side1: order.side1,
             side2: order.side2,
-            totalPaid: total,
-          },
-        });
-        return; // navigation handles the rest
+            totalPaid: total
+          }
+        })
 
       } else {
-        alert("Set VITE_SQUARE_PAYMENT_API_URL to enable payments.");
-        setStatus("idle");
+        alert(
+          "Payment token received. To complete payments, set VITE_SQUARE_PAYMENT_API_URL and implement a backend endpoint that creates a Square payment."
+        );
+        setStatus("idle"); 
       }
+
     } catch (err) {
       setStatus("idle");
       alert((err instanceof Error ? err.message : "Payment failed. Please try again.") || "Payment failed. Please try again.");
@@ -282,21 +284,6 @@ export function CheckoutModal({
           </li>
         )}
       </ul>
-      <div className="checkout-tip">
-        <label>Add tip</label>
-        <div className="tip-options">
-          {[0, 1, 2, 3].map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={tip === t ? "active" : ""}
-              onClick={() => setTip(t)}
-            >
-              ${t}
-            </button>
-          ))}
-        </div>
-      </div>
       <div className="checkout-total">
         <span>Total</span>
         <span>${total.toFixed(2)}</span>

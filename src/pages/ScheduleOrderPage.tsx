@@ -65,7 +65,7 @@ export default function ScheduleOrderPage() {
 
   const total = priceForDishCount(selectedDishes.length);
   const canCheckout = selectedDishes.length >= 1 && customerName.trim() !== "" && grade !== "";
-
+  
   const toggleDish = (id: string) => {
     setSelectedIds((prev) => {
       const i = prev.indexOf(id);
