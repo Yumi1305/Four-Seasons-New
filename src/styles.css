@@ -503,6 +503,8 @@ body {
   background: var(--bg-muted);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-subtle);
+  width: 85vw; 
+  transform: translateX(-0.5rem); 
 }
 
 /* shared base for both plain links and dropdown toggles */
@@ -554,7 +556,7 @@ body {
 
 .menu-nav-dropdown-panel {
   position: absolute;
-  z-index: 30;
+  z-index: 100;
   top: calc(100% + 6px);
   left: 0;
   min-width: 12rem;
