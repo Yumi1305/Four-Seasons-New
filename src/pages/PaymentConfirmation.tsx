@@ -25,7 +25,7 @@ function PaymentConfirmation(){
       <div className="container confirmation-box" id="receipt">
         <div className="confirmation-header">
           <h1>Order Confirmed!</h1>
-          <div>{state.orderId}</div>
+          {/* <div>{state.orderId}</div> */}
           <p className="confirmation-sub">Thank you, {customerName}. Your lunch is reserved.</p>
         </div>
 

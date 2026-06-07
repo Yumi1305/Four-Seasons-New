@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
@@ -15,7 +15,6 @@ function jsonResponse(body: unknown, status: number) {
 }
 
 function formatEventDateLabel(eventDate: string): string {
-  // event_date is typically YYYY-MM-DD
   const d = new Date(eventDate + "T00:00:00Z");
   return d.toLocaleDateString("en-US", {
     weekday: "short",
@@ -27,7 +26,13 @@ function formatEventDateLabel(eventDate: string): string {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
-  if (req.method !== "GET") {
+
+  const url = new URL(req.url);
+  const pathParts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+  const ordersIndex = pathParts.indexOf("orders");
+  const id = ordersIndex >= 0 && pathParts[ordersIndex + 1] ? pathParts[ordersIndex + 1] : null;
+
+  if (req.method !== "GET" && req.method !== "PATCH") {
     return jsonResponse({ message: "Method not allowed" }, 405);
   }
 
@@ -43,84 +48,69 @@ Deno.serve(async (req) => {
       return jsonResponse({ message: "Missing SUPABASE_URL or SUPABASE_ANON_KEY" }, 500);
     }
 
-    // Pass the user's JWT through to Supabase so RLS policies can authorize.
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { data, error } = await supabase
-      .from("orders")
-      .select(
-        "*, events(title,event_date), order_items(item_name,quantity,unit_price_cents,menu_item_id, menu_items:menu_item_id(menu_categories(name)))"
-      )
-      .order("created_at", { ascending: false });
+    if (req.method === "PATCH" && id) {
+      // deno-lint-ignore no-explicit-any
+      const body = (await req.json()) as any;
+      if (typeof body.is_fulfilled !== "boolean") {
+        return jsonResponse({ message: "is_fulfilled must be a boolean" }, 400);
+      }
+      const { error } = await supabase
+        .from("orders")
+        .update({ is_fulfilled: body.is_fulfilled, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
 
-    if (error) throw error;
+    if (req.method === "GET") {
+      // Use denormalized main/side_1/side_2 columns — they are the source of
+      // truth and require no joins or category-name heuristics.
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*, events(title, event_date)")
+        .order("created_at", { ascending: false });
 
-    const rows = (data ?? []).map((o: Record<string, unknown>) => {
-      const ev = (o as any).events as { title?: string; event_date?: string } | undefined;
-      const orderItems = ((o as any).order_items ?? []) as Array<any>;
+      if (error) throw error;
 
-      const fallbackItems = orderItems.map((it) => {
-        const qty = Number(it.quantity ?? 1);
-        const price = (Number(it.unit_price_cents ?? 0) / 100) * qty;
-        return { id: it.menu_item_id ?? it.item_name, name: it.item_name, price };
+      const rows = (data ?? []).map((o: Record<string, unknown>) => {
+        // deno-lint-ignore no-explicit-any
+        const ev = (o as any).events as { title?: string; event_date?: string } | undefined;
+        // deno-lint-ignore no-explicit-any
+        const mainName: string | null = (o as any).main ?? null;
+        // deno-lint-ignore no-explicit-any
+        const side1Name: string | null = (o as any).side_1 ?? null;
+        // deno-lint-ignore no-explicit-any
+        const side2Name: string | null = (o as any).side_2 ?? null;
+
+        return {
+          id: o.id,
+          eventId: o.event_id,
+          eventName: ev?.title ?? "",
+          eventDate: ev?.event_date ?? undefined,
+          eventDateLabel: ev?.event_date ? formatEventDateLabel(ev.event_date) : "",
+          lunchSlot: o.lunch_slot,
+          // deno-lint-ignore no-explicit-any
+          customerName: (o as any).customer_name ?? "",
+          // deno-lint-ignore no-explicit-any
+          grade: (o as any).grade ?? "",
+          main: mainName ? { id: "", name: mainName, price: 8 } : undefined,
+          side1: side1Name ? { id: "", name: side1Name, price: 2 } : null,
+          side2: side2Name ? { id: "", name: side2Name, price: 2 } : null,
+          createdAt: o.created_at,
+          status: o.status,
+          // deno-lint-ignore no-explicit-any
+          isFulfilled: Boolean((o as any).is_fulfilled),
+        };
       });
 
-      const mains: Array<{ id: string | null; name: string; price: number }> = [];
-      const sides: Array<{ id: string | null; name: string; price: number }> = [];
+      return jsonResponse(rows, 200);
+    }
 
-      const normalizeCat = (v: unknown): string => String(v ?? "").toLowerCase();
-      const classify = (it: any): "main" | "side" | "unknown" => {
-        const catName =
-          it?.menu_items?.menu_categories?.name ??
-          (Array.isArray(it?.menu_items?.menu_categories) ? it.menu_items.menu_categories?.[0]?.name : undefined) ??
-          it?.menu_categories?.name ??
-          "";
-        const c = normalizeCat(catName);
-        if (c.includes("main")) return "main";
-        if (c.includes("side")) return "side";
-        return "unknown";
-      };
-
-      for (const it of orderItems) {
-        const qty = Number(it.quantity ?? 1);
-        const price = (Number(it.unit_price_cents ?? 0) / 100) * qty;
-        const entry = { id: it.menu_item_id ?? it.item_name, name: it.item_name, price };
-
-        const kind = classify(it);
-        if (kind === "main") mains.push(entry);
-        else if (kind === "side") sides.push(entry);
-        else {
-          // If we can't classify, keep constraints: 1 main max, then sides.
-          if (mains.length < 1) mains.push(entry);
-          else sides.push(entry);
-        }
-      }
-
-      // Enforce your constraints: min 1 main (if missing, fallback to first item).
-      const main = mains[0] ?? fallbackItems[0];
-      const side1 = sides[0] ?? fallbackItems[1] ?? null;
-      const side2 = sides[1] ?? fallbackItems[2] ?? null;
-
-      return {
-        id: o.id,
-        eventId: o.event_id,
-        eventName: ev?.title ?? "",
-        eventDate: ev?.event_date ?? undefined,
-        eventDateLabel: ev?.event_date ? formatEventDateLabel(ev.event_date) : "",
-        lunchSlot: o.lunch_slot,
-        customerName: (o as any).customer_name ?? "",
-        grade: (o as any).customer_grade ?? (o as any).grade ?? "",
-        main,
-        side1,
-        side2,
-        createdAt: o.created_at,
-        status: o.status,
-      };
-    });
-
-    return jsonResponse(rows, 200);
+    return jsonResponse({ message: "Method not allowed" }, 405);
   } catch (err) {
     return jsonResponse(
       { message: err instanceof Error ? err.message : String(err) },

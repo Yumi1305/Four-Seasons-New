@@ -81,6 +81,16 @@ export async function updateEvent(
   });
 }
 
-export async function deleteEvent(id: string): Promise<void> {
-  await callEdgeFunction<unknown>(`events/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteEvent(id: string, opts?: { force?: boolean }): Promise<void> {
+  const path = opts?.force
+    ? `events/${encodeURIComponent(id)}?force=1`
+    : `events/${encodeURIComponent(id)}`;
+  await callEdgeFunction<unknown>(path, { method: "DELETE" });
+}
+
+export async function updateOrderFulfillment(id: string, fulfilled: boolean): Promise<void> {
+  await callEdgeFunction<unknown>(`orders/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { is_fulfilled: fulfilled },
+  });
 }

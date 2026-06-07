@@ -5,9 +5,11 @@ import {
   createEvent,
   updateEvent,
   deleteEvent,
+  updateOrderFulfillment,
   type AdminEvent,
   type SaveEventDishInput,
 } from "../lib/adminApi";
+import { EdgeFunctionError } from "../lib/edgeFunctions";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabaseClient";
 import {
@@ -36,13 +38,14 @@ export interface ScheduledOrder {
   side2?: { id: string; name: string; price: number } | null;
   createdAt: string;
   status?: string;
+  isFulfilled: boolean;
 }
 
-/** 8pm (20:00) the day before the event = cutoff for editing without warning */
+/** 8pm UTC the day before the event — matches the server-side cutoff in events/index.ts. */
 function getEditCutoff(eventDateStr: string): Date {
-  const d = new Date(eventDateStr + "T00:00:00");
-  d.setDate(d.getDate() - 1);
-  d.setHours(20, 0, 0, 0);
+  const d = new Date(eventDateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCHours(20, 0, 0, 0);
   return d;
 }
 
@@ -78,8 +81,10 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"orders" | "events">("orders");
 
   // Orders filters
-  const [filterDate, setFilterDate] = useState("");
+  const [filterDate, setFilterDate] = useState(new Date().toISOString().slice(0, 10));
   const [filterSlot, setFilterSlot] = useState<"all" | "A" | "B">("all");
+  const [filterName, setFilterName] = useState("");
+  const [orderSubTab, setOrderSubTab] = useState<"all" | "pending" | "done">("pending");
 
   // Events UI
   const [eventForm, setEventForm] = useState<EventFormState | null>(null);
@@ -88,6 +93,8 @@ export default function AdminPage() {
   const [eventError, setEventError] = useState("");
   const [eventsLoading, setEventsLoading] = useState(false);
   const [menuCatalog, setMenuCatalog] = useState<CatalogMenuRow[]>([]);
+  const [eventSearch, setEventSearch] = useState("");
+  const [eventSortOrder, setEventSortOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     if (!sessionToken || activeTab !== "events") return;
@@ -116,12 +123,7 @@ export default function AdminPage() {
       try {
         const raw = await fetchOrders();
         if (cancelled) return;
-        setOrders(
-          (raw as ScheduledOrder[]).map((o) => {
-            const r = o as ScheduledOrder & { eventDate?: string; lunchSlot?: "A" | "B" };
-            return { ...o, eventDate: r.eventDate, lunchSlot: r.lunchSlot };
-          })
-        );
+        setOrders(raw as ScheduledOrder[]);
       } catch (e) {
         if (!cancelled) setFetchError(e instanceof Error ? e.message : "Failed to load orders");
       } finally {
@@ -155,13 +157,23 @@ export default function AdminPage() {
     };
   }, [sessionToken, activeTab]);
 
-  const filteredOrders = useMemo(() => {
+  const displayedEvents = useMemo(() => {
+    let list = [...events];
+    if (eventSearch.trim()) {
+      const q = eventSearch.trim().toLowerCase();
+      list = list.filter((ev) => ev.name.toLowerCase().includes(q));
+    }
+    list.sort((a, b) => {
+      const cmp = a.eventDate.localeCompare(b.eventDate);
+      return eventSortOrder === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [events, eventSearch, eventSortOrder]);
+
+  const baseFilteredOrders = useMemo(() => {
     let list = [...orders];
     if (filterDate) {
-      list = list.filter((o) => {
-        const d = o.eventDate ?? "";
-        return d === filterDate || (o.eventDateLabel && o.eventDateLabel.includes(filterDate));
-      });
+      list = list.filter((o) => (o.eventDate ?? "") === filterDate);
     }
     if (filterSlot !== "all") {
       list = list.filter((o) => {
@@ -169,19 +181,38 @@ export default function AdminPage() {
         return slot === filterSlot;
       });
     }
+    if (filterName.trim()) {
+      const q = filterName.trim().toLowerCase();
+      list = list.filter((o) => o.customerName.toLowerCase().includes(q));
+    }
     list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return list;
-  }, [orders, filterDate, filterSlot]);
+  }, [orders, filterDate, filterSlot, filterName]);
 
-  const handleLogout = async () => {
-    await signOut();
+  const pendingOrders = useMemo(() => baseFilteredOrders.filter((o) => !o.isFulfilled), [baseFilteredOrders]);
+  const completedOrders = useMemo(() => baseFilteredOrders.filter((o) => o.isFulfilled), [baseFilteredOrders]);
+
+  const visibleOrders = useMemo(() => {
+    if (orderSubTab === "pending") return pendingOrders;
+    if (orderSubTab === "done") return completedOrders;
+    return baseFilteredOrders;
+  }, [orderSubTab, baseFilteredOrders, pendingOrders, completedOrders]);
+
+  const handleToggleFulfilled = async (id: string, fulfilled: boolean) => {
+    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, isFulfilled: fulfilled } : o)));
+    try {
+      await updateOrderFulfillment(id, fulfilled);
+    } catch (e) {
+      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, isFulfilled: !fulfilled } : o)));
+      console.error("[admin] failed to toggle order fulfillment:", e);
+    }
   };
 
   const handleAddEvent = () => {
     setEditingEventId(null);
     setEventForm({
       eventDate: new Date().toISOString().slice(0, 10),
-      name: "Westwood High School",
+      name: "",
       slot: "Both",
       dishes: [newDishRow(), newDishRow(), newDishRow()],
     });
@@ -262,16 +293,50 @@ export default function AdminPage() {
   };
 
   const handleDeleteEvent = async (id: string) => {
-    if (!window.confirm("Delete this event? Existing orders for it will still exist.")) return;
-    try {
-      await deleteEvent(id);
+    const ev = events.find((e) => e.id === id);
+    const isPast = ev
+      ? new Date(ev.eventDate + "T00:00:00Z") < new Date()
+      : false;
+
+    const confirmMsg = isPast
+      ? "Delete this past event? Orders placed for it will remain in the records."
+      : "Delete this event? Existing orders for it will still exist.";
+
+    if (!window.confirm(confirmMsg)) return;
+
+    const doRemove = () => {
       setEvents((prev) => prev.filter((e) => e.id !== id));
       if (editingEventId === id) {
         setEventForm(null);
         setEditingEventId(null);
       }
-    } catch (e) {
-      setEventError(e instanceof Error ? e.message : "Failed to delete");
+    };
+
+    try {
+      await deleteEvent(id);
+      doRemove();
+    } catch (err) {
+      if (
+        err instanceof EdgeFunctionError &&
+        err.status === 409 &&
+        err.body.requiresForce
+      ) {
+        const orderCount = err.body.orderCount as number;
+        if (
+          !window.confirm(
+            `Warning: this event has ${orderCount} active order(s). ` +
+            `These customers have already paid. Proceed with deletion?`
+          )
+        ) return;
+        try {
+          await deleteEvent(id, { force: true });
+          doRemove();
+        } catch (err2) {
+          setEventError(err2 instanceof Error ? err2.message : "Failed to delete");
+        }
+      } else {
+        setEventError(err instanceof Error ? err.message : "Failed to delete");
+      }
     }
   };
 
@@ -323,7 +388,7 @@ export default function AdminPage() {
               Scheduled lunch orders and school events
             </p>
           </div>
-          <button type="button" className="btn-admin-outline" onClick={handleLogout}>
+          <button type="button" className="btn-admin-outline" onClick={signOut}>
             Sign out
           </button>
         </header>
@@ -355,12 +420,36 @@ export default function AdminPage() {
           <section className="admin-panel" aria-labelledby="orders-heading">
             <div className="admin-panel-head">
               <h2 id="orders-heading" className="admin-panel-title">
-                Scheduled orders
+                Orders
               </h2>
               <p className="admin-panel-desc">
-                Filter by date or lunch slot. Newest orders appear first.
+                Filter by date, slot, or name. Newest orders appear first.
               </p>
             </div>
+
+            <div className="admin-order-subtabs" role="tablist">
+              {(["pending", "done", "all"] as const).map((tab) => {
+                const count =
+                  tab === "pending" ? pendingOrders.length
+                  : tab === "done" ? completedOrders.length
+                  : baseFilteredOrders.length;
+                const label = tab === "pending" ? "Pending" : tab === "done" ? "Done" : "All";
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={orderSubTab === tab}
+                    className={`admin-order-subtab${orderSubTab === tab ? " active" : ""}`}
+                    onClick={() => setOrderSubTab(tab)}
+                  >
+                    {label}
+                    <span className="admin-order-subtab-count">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="admin-filters">
               <label className="admin-filter">
                 <span>Date</span>
@@ -376,10 +465,19 @@ export default function AdminPage() {
                   value={filterSlot}
                   onChange={(e) => setFilterSlot(e.target.value as "all" | "A" | "B")}
                 >
-                  <option value="all">All</option>
+                  <option value="all">All slots</option>
                   <option value="A">A lunch</option>
                   <option value="B">B lunch</option>
                 </select>
+              </label>
+              <label className="admin-filter">
+                <span>Name</span>
+                <input
+                  type="search"
+                  value={filterName}
+                  onChange={(e) => setFilterName(e.target.value)}
+                  placeholder="Filter by student name…"
+                />
               </label>
             </div>
 
@@ -389,10 +487,10 @@ export default function AdminPage() {
                 {fetchError}
               </div>
             )}
-            {!loading && !fetchError && filteredOrders.length === 0 && (
+            {!loading && !fetchError && visibleOrders.length === 0 && (
               <p className="admin-empty">No orders match the filters.</p>
             )}
-            {!loading && filteredOrders.length > 0 && (
+            {!loading && visibleOrders.length > 0 && (
               <div className="admin-table-wrap">
                 <table className="admin-table">
                   <thead>
@@ -405,11 +503,12 @@ export default function AdminPage() {
                       <th>Side 1</th>
                       <th>Side 2</th>
                       <th>Status</th>
+                      <th>Done</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.map((order) => (
-                      <tr key={order.id}>
+                    {visibleOrders.map((order) => (
+                      <tr key={order.id} className={order.isFulfilled ? "order-row--done" : ""}>
                         <td>{order.eventDateLabel}</td>
                         <td>{order.eventName}</td>
                         <td>{order.customerName}</td>
@@ -418,6 +517,16 @@ export default function AdminPage() {
                         <td>{order.side1?.name ?? "—"}</td>
                         <td>{order.side2?.name ?? "—"}</td>
                         <td>{order.status ?? "—"}</td>
+                        <td className="order-done-cell">
+                          <label className="order-done-check">
+                            <input
+                              type="checkbox"
+                              checked={order.isFulfilled}
+                              onChange={(e) => void handleToggleFulfilled(order.id, e.target.checked)}
+                            />
+                            {order.isFulfilled ? "Done" : "Mark done"}
+                          </label>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -550,13 +659,40 @@ export default function AdminPage() {
               </div>
             )}
 
+            {!eventsLoading && events.length > 0 && (
+              <div className="admin-filters">
+                <label className="admin-filter">
+                  <span>Search</span>
+                  <input
+                    type="search"
+                    value={eventSearch}
+                    onChange={(e) => setEventSearch(e.target.value)}
+                    placeholder="Filter by name…"
+                  />
+                </label>
+                <label className="admin-filter">
+                  <span>Sort by date</span>
+                  <select
+                    value={eventSortOrder}
+                    onChange={(e) => setEventSortOrder(e.target.value as "asc" | "desc")}
+                  >
+                    <option value="asc">Earliest first</option>
+                    <option value="desc">Latest first</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
             {eventsLoading && <p className="admin-loading">Loading events…</p>}
             {!eventsLoading && events.length === 0 && !eventForm && (
               <p className="admin-empty">No events yet. Add one to show on the schedule.</p>
             )}
-            {!eventsLoading && events.length > 0 && (
+            {!eventsLoading && events.length > 0 && displayedEvents.length === 0 && (
+              <p className="admin-empty">No events match your search.</p>
+            )}
+            {!eventsLoading && displayedEvents.length > 0 && (
               <ul className="admin-events-grid">
-                {events.map((ev) => (
+                {displayedEvents.map((ev) => (
                   <li key={ev.id} className="admin-event-card">
                     <button
                       type="button"

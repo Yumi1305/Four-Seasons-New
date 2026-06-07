@@ -6,17 +6,22 @@ import { AuthContext, type AuthContextValue } from "./auth-context";
 type AdminGate = "admin" | "not_admin" | "error";
 
 async function resolveAdminGate(user: User): Promise<AdminGate> {
-  const { data, error } = await supabase
-    .from("admin_users")
-    .select("id")
-    .eq("auth_id", user.id)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from("admin_users")
+      .select("id")
+      .eq("auth_id", user.id)
+      .maybeSingle();
 
-  if (error) {
-    console.error("[auth] admin_users lookup failed:", error.message);
+    if (error) {
+      console.error("[auth] admin_users lookup failed:", error.message);
+      return "error";
+    }
+    return data ? "admin" : "not_admin";
+  } catch (e) {
+    console.error("[auth] admin_users lookup threw:", e);
     return "error";
   }
-  return data ? "admin" : "not_admin";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -31,17 +36,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const applySession = useCallback((next: Session | null) => {
     setSession(next);
     setIsAdmin(false);
-    setLoading(true);
+    // Only await gate check when there is a user. If no session, loading is
+    // already done — no async work is pending. Setting true for null sessions
+    // can leave loading stuck if onAuthStateChange fires after the initial
+    // check, because setSession(null) is a no-op (null===null) and the gate
+    // effect's deps never change, so it never re-runs to clear loading.
+    setLoading(next?.user != null);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (cancelled) return;
-      applySession(data.session);
-      setAuthReady(true);
-    });
+    void supabase.auth.getSession()
+      .then(({ data }) => {
+        if (cancelled) return;
+        applySession(data.session);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        applySession(null);
+        setAuthReady(true);
+      });
 
     const {
       data: { subscription },
@@ -67,28 +83,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void (async () => {
-      const gate = await resolveAdminGate(user);
-      if (cancelled) return;
+      try {
+        const gate = await resolveAdminGate(user);
+        if (cancelled) return;
 
-      if (gate === "admin") {
-        setIsAdmin(true);
+        if (gate === "admin") {
+          setIsAdmin(true);
+          setLoading(false);
+          return;
+        }
+
+        if (gate === "not_admin") {
+          setLoading(false);
+          await supabase.auth.signOut();
+          return;
+        }
+
         setLoading(false);
-        return;
+      } catch {
+        if (!cancelled) setLoading(false);
       }
-
-      if (gate === "not_admin") {
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
-
-      setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [authReady, session?.user?.id, session]);
+  // session?.user?.id already captures the relevant change (new user vs no user).
+  // Including `session` as a separate dep re-triggers on token refresh, causing
+  // an unnecessary admin_users lookup on each silent refresh cycle.
+  }, [authReady, session?.user?.id]);
 
   // Sign out after 30 minutes of inactivity — industry standard for admin portals.
   // Timer resets on any mouse, keyboard, or touch event.

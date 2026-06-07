@@ -225,23 +225,22 @@ Deno.serve(async (req) => {
         .order("event_date", { ascending: true });
       if (error) throw error;
 
-      // deno-lint-ignore no-explicit-any
-      const results: any[] = [];
-      for (const ev of data ?? []) {
+      const results = await Promise.all(
         // deno-lint-ignore no-explicit-any
-        const e = ev as any;
-        const slot = slotLabelFromFlags(Boolean(e.has_slot_a), Boolean(e.has_slot_b));
-        const dishes = await getDishesForEvent(supabase, e.id);
-        results.push({
-          id: e.id,
-          eventDate: e.event_date,
-          name: e.title,
-          slot,
-          dishes,
-          createdAt: e.created_at,
-          updatedAt: e.updated_at,
-        });
-      }
+        (data ?? []).map(async (ev: any) => {
+          const slot = slotLabelFromFlags(Boolean(ev.has_slot_a), Boolean(ev.has_slot_b));
+          const dishes = await getDishesForEvent(supabase, ev.id);
+          return {
+            id: ev.id,
+            eventDate: ev.event_date,
+            name: ev.title,
+            slot,
+            dishes,
+            createdAt: ev.created_at,
+            updatedAt: ev.updated_at,
+          };
+        }),
+      );
       return jsonResponse(results, 200);
     }
 
@@ -368,18 +367,46 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "DELETE" && id) {
-      const {count, error: countErr} = await supabase
-      .from("orders")
-      .select("id", {count: "exact", head: "True"})
-      .eq("event_id", id); 
+      const { data: eventData, error: eventErr } = await supabase
+        .from("events")
+        .select("id, event_date")
+        .eq("id", id)
+        .maybeSingle();
+      if (eventErr) throw eventErr;
+      if (!eventData) return jsonResponse({ message: "Event not found" }, 404);
 
-      if (countErr) throw countErr;  
-      if (count && count > 0){
-        return jsonResponse({message: `Cannot delete: this event has ${count} order(s) referencing it.` }, 409)
+      const { count, error: countErr } = await supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", id);
+      if (countErr) throw countErr;
+
+      const orderCount = count ?? 0;
+      // deno-lint-ignore no-explicit-any
+      const eventDate = new Date((eventData as any).event_date + "T00:00:00Z");
+      const isPast = eventDate < new Date();
+
+      // Future event with active orders — block unless the caller explicitly confirms
+      if (orderCount > 0 && !isPast && !force) {
+        return jsonResponse({
+          message: `This event has ${orderCount} order(s). Delete anyway?`,
+          orderCount,
+          requiresForce: true,
+        }, 409);
       }
 
-      const { error } = await supabase.from("events").delete().eq("id", id);
-      if (error) throw error;
+      if (orderCount > 0) {
+        // Soft-delete so the FK from orders stays valid and order history remains readable.
+        const { error } = await supabase
+          .from("events")
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq("id", id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("events").delete().eq("id", id);
+        if (error) throw error;
+      }
+
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 

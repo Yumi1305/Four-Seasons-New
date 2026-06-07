@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getSquareConfig } from "../lib/squareConfig";
-import { Navigate, useNavigate } from "react-router-dom";
+import { getSupabaseAnonKey } from "../lib/env";
+import { useNavigate } from "react-router-dom";
 
 declare global {
   interface Window {
@@ -157,10 +158,10 @@ export function CheckoutModal({
 
   useEffect(() => {
     if (!config.applicationId || !config.locationId) return;
-    if (!window.Square) return;
 
     let mounted = true;
-    (async () => {
+
+    const initCard = async () => {
       try {
         const payments = window.Square!.payments(
           config.applicationId,
@@ -174,7 +175,16 @@ export function CheckoutModal({
       } catch (e) {
         console.error("Square card init:", e);
       }
-    })();
+    };
+
+    if (window.Square) {
+      void initCard();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://sandbox.web.squarecdn.com/v1/square.js";
+      script.onload = () => { if (mounted) void initCard(); };
+      document.head.appendChild(script);
+    }
 
     return () => {
       mounted = false;
@@ -202,9 +212,14 @@ export function CheckoutModal({
       }
 
       if (config.paymentApiUrl) {
+        const anonKey = getSupabaseAnonKey();
         const res = await fetch(config.paymentApiUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": anonKey,
+            "Authorization": `Bearer ${anonKey}`,
+          },
           body: JSON.stringify({
             nonce: result.token,
             amount: Math.round(total * 100),

@@ -11,9 +11,10 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
 
-  const disabled = loading || cooldown;
+  const disabled = loading || submitting || cooldown;
 
   if (!loading && session && isAdmin) {
     return <Navigate to="/admin" replace />;
@@ -23,15 +24,17 @@ export default function AdminLoginPage() {
     e.preventDefault();
     if (disabled) return;
     setError("");
+    setSubmitting(true);
 
     try {
       await signIn(email.trim(), password);
       navigate("/admin", { replace: true });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Sign-in failed.";
-      setError(message || "Invalid email or password.");
+      setError(err instanceof Error ? err.message : "Sign-in failed.");
       setCooldown(true);
       window.setTimeout(() => setCooldown(false), COOLDOWN_MS);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -69,7 +72,7 @@ export default function AdminLoginPage() {
           {error && <p className="admin-login-error">{error}</p>}
 
           <button type="submit" className="btn-primary" disabled={disabled}>
-            {loading ? "Signing in…" : cooldown ? "Please wait…" : "Sign in"}
+            {submitting ? "Signing in…" : cooldown ? "Please wait…" : "Sign in"}
           </button>
         </form>
       </div>

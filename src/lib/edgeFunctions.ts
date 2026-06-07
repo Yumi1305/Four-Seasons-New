@@ -3,6 +3,17 @@ import { getSupabaseAnonKey, getSupabaseUrl } from "./env";
 
 const REFRESH_BUFFER_SEC = 120;
 
+export class EdgeFunctionError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = "EdgeFunctionError";
+  }
+}
+
 function functionsRoot(): string {
   return `${getSupabaseUrl()}/functions/v1`;
 }
@@ -69,8 +80,14 @@ export async function callEdgeFunction<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
-      text ? `${options.method} /${relativePath}: ${res.status} — ${text.slice(0, 400)}` : `${options.method} /${relativePath}: ${res.status}`
+    let body: Record<string, unknown> = {};
+    try { body = JSON.parse(text); } catch { /* non-JSON error body */ }
+    throw new EdgeFunctionError(
+      text
+        ? `${options.method} /${relativePath}: ${res.status} — ${text.slice(0, 400)}`
+        : `${options.method} /${relativePath}: ${res.status}`,
+      res.status,
+      body,
     );
   }
 
@@ -83,5 +100,8 @@ export async function callEdgeFunction<T>(
     return (await res.json()) as T;
   }
 
-  return (await res.text()) as T;
+  const text = await res.text();
+  throw new Error(
+    `${options.method} /${relativePath}: unexpected content-type "${ct}" — body: ${text.slice(0, 200)}`
+  );
 }
